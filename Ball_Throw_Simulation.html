@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ball Throw Simulation</title>
+<style>
+:root{--bg:#e6f1f9;--ink:#12324a;--muted:#4f6b80;--card:#fff;--line:#c9dcea;--accent:#1f6fb2;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1a25;--ink:#e6f1fa;--muted:#9bb4c7;--card:#172838;--line:#2b4157;--accent:#5fb0ee;color-scheme:dark}}
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Trebuchet MS","Segoe UI",system-ui,sans-serif;line-height:1.45}
+.wrap{max-width:1000px;margin:0 auto;padding:16px}
+h1{font-size:1.45rem;margin:4px 0 2px}
+p.sub{margin:0 0 12px;color:var(--muted)}
+.grid{display:grid;grid-template-columns:2fr 1fr;gap:14px}
+@media (max-width:760px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;box-shadow:0 6px 20px rgba(10,40,70,.12)}
+canvas{width:100%;height:auto;display:block;border-radius:10px;aspect-ratio:4/3}
+.stage{display:block;padding:8px 12px;border-radius:10px;font-weight:700;margin-bottom:8px;background:var(--accent);color:#fff}
+.read{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}
+.read div{border:1px solid var(--line);border-radius:10px;padding:8px}
+.read b{display:block;font-size:1.25rem;font-variant-numeric:tabular-nums}
+.read span{color:var(--muted);font-size:.85rem}
+.barw{height:12px;border-radius:8px;background:var(--line);overflow:hidden;margin:4px 0 2px}
+#bar{display:block;height:100%;width:0;background:#2e86de;transition:background .15s}
+label{display:block;margin:10px 0 2px;font-size:.9rem}
+input[type=range]{width:100%}
+.btns{display:flex;gap:8px;margin-top:12px}
+button{flex:1;padding:14px;border:0;border-radius:10px;background:var(--accent);color:#fff;font-size:1.05rem;font-weight:700;cursor:pointer}
+button.alt{background:transparent;color:var(--accent);border:2px solid var(--accent)}
+button:focus-visible,input:focus-visible{outline:3px solid #f5a623;outline-offset:2px}
+.leg{font-size:.85rem;color:var(--muted);margin:8px 0 0}
+.leg i{display:inline-block;width:10px;height:10px;border-radius:50%;margin:0 4px 0 8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Ball Throw Simulation</h1>
+  <p class="sub">Bacha ball upar fenkta hai. Upar jaate hue speed kam hoti hai, top par ruk jaati hai, phir niche girte hue speed badhti hai.</p>
+  <div class="grid">
+    <div class="card">
+      <canvas id="c" width="640" height="480" aria-label="Bacha ball upar fenkta hua"></canvas>
+      <div class="btns"><button id="throw">Ball fenko</button><button id="reset" class="alt">Reset</button></div>
+    </div>
+    <div class="card">
+      <span class="stage" id="stage">Ready</span>
+      <div class="read">
+        <div><b id="vel">0.0 m/s</b><span>Velocity (upar +)</span></div>
+        <div><b id="spd">0.0 m/s</b><span>Speed</span></div>
+        <div><b id="hgt">0.0 m</b><span>Height</span></div>
+        <div><b id="tm">0.0 s</b><span>Time</span></div>
+      </div>
+      <span style="font-size:.85rem;color:var(--muted)">Speed meter</span>
+      <div class="barw"><i id="bar"></i></div>
+      <label for="v0">Throw speed: <b id="v0l">15</b> m/s</label>
+      <input id="v0" type="range" min="5" max="25" value="15">
+      <label for="sl">Slow motion (chhota = dheere)</label>
+      <input id="sl" type="range" min="0.2" max="1" step="0.1" value="0.6">
+      <p class="leg"><i style="background:#2e86de"></i>velocity upar<i style="background:#e0402f"></i>velocity niche<i style="background:#f08a1c"></i>gravity (9.8 m/s²)</p>
+    </div>
+  </div>
+</div>
+<script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d'),$=id=>document.getElementById(id);
+const W=640,H=480,GY=380,FY=394,G=9.8,KX=130,SX=KX+12,SY=FY-78,L=34;
+const HX=SX+42*Math.cos(-68*Math.PI/180),HY0=SY+42*Math.sin(-68*Math.PI/180);
+const dpr=Math.min(2,window.devicePixelRatio||1);cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);
+let v0=15,scale=10,phase='idle',wt=0,t=0,trail=[],clk=0,last=performance.now();
+let sd=7;const rnd=()=>(sd=(sd*16807)%2147483647)/2147483647;
+const blades=Array.from({length:220},()=>({x:rnd()*W,y:GY+6+rnd()*(H-GY-6),h:4+rnd()*6,c:rnd()}));
+function sc(){scale=Math.min(14,250/(v0*v0/(2*G)))}
+function ST(){if(phase==='flight'||phase==='done'){return{y:Math.max(0,v0*t-.5*G*t*t),v:v0-G*t}}return{y:0,v:0}}
+function ease(p){return p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2}
+function armAngle(){const A=Math.PI/180;if(phase==='idle')return 110*A;if(phase==='windup')return(110-178*ease(Math.min(1,wt/.5)))*A;return -68*A}
+function cloud(x,y,s){ctx.fillStyle='rgba(255,255,255,.93)';ctx.beginPath();[[0,0,18],[20,-8,22],[42,0,17],[22,6,20]].forEach(([a,b,r])=>{ctx.moveTo(x+a*s+r*s,y+b*s);ctx.arc(x+a*s,y+b*s,r*s,0,7)});ctx.fill()}
+function hill(b,a,f,c,p){ctx.fillStyle=c;ctx.beginPath();ctx.moveTo(0,GY);for(let x=0;x<=W;x+=8)ctx.lineTo(x,b+a*Math.sin(x*f+p));ctx.lineTo(W,GY);ctx.fill()}
+function tree(x,h){ctx.fillStyle='#6b4a2b';ctx.fillRect(x-3,GY-h*.45+4,6,h*.45);ctx.fillStyle='#2f8a46';ctx.beginPath();ctx.arc(x,GY-h*.6,h*.32,0,7);ctx.arc(x-h*.18,GY-h*.45,h*.24,0,7);ctx.arc(x+h*.18,GY-h*.45,h*.24,0,7);ctx.fill();ctx.fillStyle='rgba(255,255,255,.12)';ctx.beginPath();ctx.arc(x-h*.1,GY-h*.7,h*.15,0,7);ctx.fill()}
+function arrow(x,y,len,col){ctx.strokeStyle=col;ctx.fillStyle=col;ctx.lineWidth=3;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x,y+len);ctx.stroke();const d=len>0?1:-1;ctx.beginPath();ctx.moveTo(x,y+len+d*8);ctx.lineTo(x-6,y+len-d*1);ctx.lineTo(x+6,y+len-d*1);ctx.fill()}
+function ball(x,y,r,rot){ctx.save();ctx.translate(x,y);ctx.beginPath();ctx.arc(0,0,r,0,7);ctx.clip();let g=ctx.createRadialGradient(-r*.35,-r*.4,r*.1,0,0,r*1.1);g.addColorStop(0,'#ff8a78');g.addColorStop(.55,'#e03a2b');g.addColorStop(1,'#8f1b12');ctx.fillStyle=g;ctx.fillRect(-r,-r,2*r,2*r);ctx.rotate(rot);ctx.strokeStyle='rgba(255,255,255,.85)';ctx.lineWidth=1.8;ctx.beginPath();ctx.arc(-r*1.1,0,r*.95,-1.2,1.2);ctx.stroke();ctx.beginPath();ctx.arc(r*1.1,0,r*.95,Math.PI-1.2,Math.PI+1.2);ctx.stroke();ctx.restore();ctx.fillStyle='rgba(255,255,255,.6)';ctx.beginPath();ctx.ellipse(x-r*.35,y-r*.4,r*.22,r*.14,-.6,0,7);ctx.fill()}
+function kid(a){
+  const skin='#f0be94',shirt='#f5b82e';
+  ctx.fillStyle='rgba(0,0,0,.25)';ctx.beginPath();ctx.ellipse(KX,FY+3,32,7,0,0,7);ctx.fill();
+  ctx.lineCap='round';
+  ctx.strokeStyle=skin;ctx.lineWidth=9;ctx.beginPath();ctx.moveTo(KX-8,SY+2);ctx.lineTo(KX-13,SY+32);ctx.stroke();
+  ctx.lineWidth=11;ctx.beginPath();ctx.moveTo(KX-6,FY-38);ctx.lineTo(KX-8,FY-8);ctx.moveTo(KX+7,FY-38);ctx.lineTo(KX+9,FY-8);ctx.stroke();
+  ctx.fillStyle='#fff';ctx.beginPath();ctx.ellipse(KX-4,FY-3,10,5,0,0,7);ctx.ellipse(KX+14,FY-3,10,5,0,0,7);ctx.fill();
+  ctx.fillStyle='#3a5ea8';ctx.beginPath();ctx.roundRect(KX-15,FY-48,31,18,4);ctx.fill();
+  ctx.fillStyle=shirt;ctx.beginPath();ctx.roundRect(KX-15,SY-8,31,46,8);ctx.fill();
+  ctx.fillStyle=skin;ctx.fillRect(KX-3,SY-14,8,8);
+  ctx.beginPath();ctx.arc(KX+1,FY-100,15,0,7);ctx.fill();
+  ctx.fillStyle='#2b1d14';ctx.beginPath();ctx.arc(KX+1,FY-102,15.5,Math.PI*1.02,Math.PI*1.98);ctx.fill();ctx.fillRect(KX-14,FY-106,10,9);
+  ctx.beginPath();ctx.arc(KX+7,FY-99,1.8,0,7);ctx.fillStyle='#222';ctx.fill();
+  ctx.strokeStyle='#8a4a2b';ctx.lineWidth=1.6;ctx.beginPath();ctx.arc(KX+7,FY-95,4,.2,Math.PI-.5);ctx.stroke();
+  const hx=SX+L*Math.cos(a),hy=SY+L*Math.sin(a);
+  ctx.strokeStyle=skin;ctx.lineWidth=9;ctx.beginPath();ctx.moveTo(SX,SY);ctx.lineTo(hx,hy);ctx.stroke();
+  ctx.strokeStyle=shirt;ctx.lineWidth=11;ctx.beginPath();ctx.moveTo(SX,SY);ctx.lineTo(SX+11*Math.cos(a),SY+11*Math.sin(a));ctx.stroke();
+}
+function draw(){
+  const s=ST(),a=armAngle();
+  ctx.clearRect(0,0,W,H);
+  let g=ctx.createLinearGradient(0,0,0,GY);g.addColorStop(0,'#3d97e0');g.addColorStop(1,'#d4eeff');ctx.fillStyle=g;ctx.fillRect(0,0,W,GY+1);
+  g=ctx.createRadialGradient(490,64,4,490,64,95);g.addColorStop(0,'rgba(255,250,210,1)');g.addColorStop(.25,'rgba(255,238,150,.85)');g.addColorStop(1,'rgba(255,238,150,0)');ctx.fillStyle=g;ctx.fillRect(380,0,260,170);
+  [[40,70,1],[250,40,.8],[420,120,.7]].forEach(([x,y,z],i)=>cloud(((x+clk*(6+i*3))%(W+160))-80,y,z));
+  hill(GY-62,26,.011,'#93d38a',1);hill(GY-30,20,.017,'#62b45c',2.5);
+  tree(300,70);tree(345,54);tree(440,66);tree(520,48);
+  g=ctx.createLinearGradient(0,GY,0,H);g.addColorStop(0,'#6fc152');g.addColorStop(1,'#3c8a34');ctx.fillStyle=g;ctx.fillRect(0,GY,W,H-GY);
+  ctx.fillStyle='rgba(255,255,255,.05)';for(let i=0;i<6;i+=2)ctx.fillRect(0,GY+i*17,W,17);
+  blades.forEach(b=>{ctx.strokeStyle=b.c>.5?'#2f7a2c':'#8bd36b';ctx.lineWidth=1.3;ctx.beginPath();ctx.moveTo(b.x,b.y);ctx.lineTo(b.x+2,b.y-b.h);ctx.stroke()});
+  // ruler (hath ke level se)
+  const hmax=v0*v0/(2*G),step=hmax>20?5:hmax>8?2:1;
+  ctx.strokeStyle='rgba(10,45,75,.55)';ctx.fillStyle='#0d3350';ctx.lineWidth=1;ctx.font='12px sans-serif';
+  ctx.beginPath();ctx.moveTo(W-52,HY0);ctx.lineTo(W-52,HY0-hmax*scale*1.1);ctx.stroke();
+  for(let m=0;m<=hmax*1.1;m+=step){const yy=HY0-m*scale;ctx.beginPath();ctx.moveTo(W-52,yy);ctx.lineTo(W-42,yy);ctx.stroke();ctx.fillText(m+' m',W-38,yy+4)}
+  // max height line
+  if(s.v<=0&&(phase==='flight'||phase==='done')){const my=HY0-hmax*scale;ctx.setLineDash([6,5]);ctx.strokeStyle='rgba(10,45,75,.7)';ctx.beginPath();ctx.moveTo(HX+30,my);ctx.lineTo(W-52,my);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='#0d3350';ctx.font='bold 12px sans-serif';ctx.fillText('Sabse upar: '+hmax.toFixed(1)+' m',HX+36,my-6)}
+  // ball position
+  let bx,by;
+  if(phase==='flight'||phase==='done'){bx=HX;by=HY0-s.y*scale}else{bx=SX+42*Math.cos(a);by=SY+42*Math.sin(a)}
+  // ball shadow on lawn
+  if(phase==='flight'||phase==='done'){const k=Math.max(.35,1-s.y*scale/380);ctx.fillStyle='rgba(0,0,0,'+(.28*k)+')';ctx.beginPath();ctx.ellipse(bx,FY+8,15*k,4.5*k,0,0,7);ctx.fill()}
+  kid(a);
+  // trail
+  trail.forEach((p,i)=>{ctx.fillStyle='rgba(255,255,255,'+(i/trail.length*.5)+')';ctx.beginPath();ctx.arc(p.x,p.y,3.5*i/trail.length+1,0,7);ctx.fill()});
+  ball(bx,by,12,(phase==='flight'||phase==='done')?t*7:0);
+  // arrows
+  if(phase==='flight'){
+    if(Math.abs(s.v)>.5){arrow(bx+30,by,-s.v*3.2,s.v>0?'#2e86de':'#e0402f');ctx.fillStyle=s.v>0?'#1d5fa8':'#b8301f';ctx.font='bold 13px sans-serif';ctx.fillText('v',bx+38,by+4)}
+    arrow(bx-30,by-12,28,'#f08a1c');ctx.fillStyle='#b8620a';ctx.font='bold 13px sans-serif';ctx.fillText('g',bx-48,by+4);
+  }
+}
+function ui(){
+  const s=ST(),v=s.v;
+  $('vel').textContent=(v>0?'+':'')+v.toFixed(1)+' m/s';$('spd').textContent=Math.abs(v).toFixed(1)+' m/s';
+  $('hgt').textContent=s.y.toFixed(1)+' m';$('tm').textContent=t.toFixed(1)+' s';
+  const bar=$('bar');bar.style.width=Math.min(100,Math.abs(v)/v0*100)+'%';bar.style.background=v>=0?'#2e86de':'#e0402f';
+  let l='Ready: ball bacche ke hath mein hai';
+  if(phase==='windup')l='Bacha ball fenk raha hai...';
+  if(phase==='flight')l=Math.abs(v)<.4?'Sabse upar: ball ruki hui (v = 0)':v>0?'Upar ja rahi hai: speed kam ho rahi hai':'Niche gir rahi hai: speed badh rahi hai';
+  if(phase==='done')l='Bache ne ball pakad li';
+  $('stage').textContent=l;
+}
+function frame(ts){
+  const dt=Math.min(.05,(ts-last)/1000);last=ts;clk+=dt;
+  if(phase==='windup'){wt+=dt;if(wt>=.5){phase='flight';t=0;trail=[]}}
+  else if(phase==='flight'){
+    t+=dt*(+$('sl').value);
+    const s=ST();trail.push({x:HX,y:HY0-s.y*scale});if(trail.length>36)trail.shift();
+    if(t>.05&&s.y<=0){t=2*v0/G;phase='done'}
+  }
+  draw();ui();requestAnimationFrame(frame);
+}
+function reset(){phase='idle';wt=0;t=0;trail=[];sc()}
+$('v0').oninput=e=>{v0=+e.target.value;$('v0l').textContent=v0;reset()};
+$('throw').onclick=()=>{reset();phase='windup'};
+$('reset').onclick=reset;
+sc();requestAnimationFrame(frame);
+</script>
+</body>
+</html>
